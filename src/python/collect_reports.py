@@ -7,7 +7,6 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-import requests
 import edinet_tools
 
 
@@ -21,19 +20,59 @@ from config.loadConfig import load_config
 def parse_date(date_str: str) -> date:
     return datetime.strptime(date_str, "%Y-%m-%d").date()
 
-def collect_annual_statements_by_date(date_str: str, sleep_seconds: float, doc_type_annual: str) -> pd.DataFrame:
+
+def daterange(start_date: date, end_date: date):
+    current_date = start_date
+    while current_date <= end_date:
+        yield current_date
+        current_date += timedelta(days=1)
+
+
+def get_report_type_settings(cfg: dict, report_type: str) -> dict:
+    report_types = cfg.get("report_types", {})
+
+    if report_type not in report_types:
+        raise ValueError(
+            f"Unknown report_type='{report_type}'. "
+            f"Available report types: {list(report_types.keys())}"
+        )
+
+    settings = report_types[report_type]
+    doc_type_codes = [str(x) for x in settings.get("doc_type_codes", [])]
+    output_prefix = settings.get("output_prefix")
+
+    if not doc_type_codes:
+        raise ValueError(f"No doc_type_codes configured for report_type='{report_type}'")
+
+    if not output_prefix:
+        raise ValueError(f"No output_prefix configured for report_type='{report_type}'")
+
+    return {
+        "doc_type_codes": doc_type_codes,
+        "output_prefix": output_prefix,
+    }
+
+
+def collect_statements_by_date(
+    date_str: str,
+    sleep_seconds: float,
+    doc_type_codes: list[str],
+    report_type: str
+) -> pd.DataFrame:
     rows = []
 
-    docs = edinet_tools.documents(date_str, doc_type=doc_type_annual)
+    for doc_type_code in doc_type_codes:
+        docs = edinet_tools.documents(date_str, doc_type=doc_type_code)
+        print(f"{date_str} report_type={report_type} doc_type={doc_type_code}: {len(docs)} filings")
 
-    print(f"{date_str}: {len(docs)} annual filings")
+        for doc in docs:
+            try:
+                report = doc.parse()
 
-    for doc in docs:
-        try:
-            report = doc.parse()
+                row = {
+                    "report_type": report_type,
+                    "doc_type_code_used": doc_type_code,
 
-            if isinstance(report, edinet_tools.SecuritiesReport):
-                rows.append({
                     "doc_id": getattr(doc, "doc_id", None),
                     "filing_datetime": getattr(doc, "filing_datetime", None),
                     "doc_type_name": getattr(doc, "doc_type_name", None),
@@ -57,20 +96,22 @@ def collect_annual_statements_by_date(date_str: str, sleep_seconds: float, doc_t
 
                     "roe": getattr(report, "roe", None),
                     "equity_ratio": getattr(report, "equity_ratio", None),
-                })
-        except Exception as exc:
-            print(f"[WARN] parse failed doc_id={getattr(doc, 'doc_id', None)}: {exc}")
+                }
 
-        time.sleep(sleep_seconds)
+                if any(pd.notna(row.get(col)) for col in ["filer_name", "ticker", "net_sales", "assets"]):
+                    rows.append(row)
+
+            except Exception as exc:
+                print(
+                    f"[WARN] parse failed "
+                    f"report_type={report_type} "
+                    f"doc_type={doc_type_code} "
+                    f"doc_id={getattr(doc, 'doc_id', None)}: {exc}"
+                )
+
+            time.sleep(sleep_seconds)
 
     return pd.DataFrame(rows)
-
-
-def daterange(start_date: date, end_date: date):
-    current_date = start_date
-    while current_date <= end_date:
-        yield current_date
-        current_date += timedelta(days=1)
 
 
 def load_translations(translations_csv: str) -> pd.DataFrame:
@@ -111,7 +152,12 @@ def build_output_filename(output_prefix: str, start_date: date, end_date: date) 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Collect EDINET annual statements over a date range."
+        description="Collect EDINET reports over a date range."
+    )
+    parser.add_argument(
+        "--report-type",
+        required=True,
+        help="Configured report type name, e.g. annual or semi_annual"
     )
     parser.add_argument(
         "--start-date",
@@ -138,12 +184,12 @@ def main():
     translations_csv = cfg["paths"]["translations_csv"]
     output_dir = cfg["paths"]["output_dir"]
 
-    doc_type_annual = cfg["edinet"]["doc_type_annual"]
     sleep_seconds = float(cfg["edinet"]["sleep_seconds"])
 
-    output_prefix = cfg["files"]["annual_output_prefix"]
+    report_type_settings = get_report_type_settings(cfg, args.report_type)
+    doc_type_codes = report_type_settings["doc_type_codes"]
+    output_prefix = report_type_settings["output_prefix"]
 
-    # command-line overrides config defaults
     if args.start_date and args.end_date:
         start_date = parse_date(args.start_date)
         end_date = parse_date(args.end_date)
@@ -161,15 +207,17 @@ def main():
 
     os.chdir(working_dir)
 
-    print(f"Processing from {start_date} to {end_date}")
+    print(f"Processing report_type={args.report_type} from {start_date} to {end_date}")
+    print(f"Using doc types: {doc_type_codes}")
 
     all_frames = []
 
     for current_date in daterange(start_date, end_date):
-        daily_df = collect_annual_statements_by_date(
+        daily_df = collect_statements_by_date(
             date_str=current_date.isoformat(),
             sleep_seconds=sleep_seconds,
-            doc_type_annual=doc_type_annual
+            doc_type_codes=doc_type_codes,
+            report_type=args.report_type
         )
         all_frames.append(daily_df)
 
@@ -181,8 +229,6 @@ def main():
     print("Collected shape:", df_all.shape)
 
     translations = load_translations(translations_csv)
-    print(translations.head())
-
     df_final = df_all.merge(
         translations,
         left_on="filer_name",

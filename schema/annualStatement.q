@@ -1,0 +1,21 @@
+annualEmpty:([] 
+    doc_id:`symbol$();
+    filing_datetime:`timestamp$();
+    doc_type_name:`symbol$();
+    filer_name:`symbol$();
+    filer_name_en:`symbol$();
+    ticker:`symbol$();
+    fiscal_year_end:`date$();
+    accounting_standard:`symbol$();
+    net_sales:`float$();
+    operating_income:`float$();
+    net_income:`float$();
+    assets:`float$();
+    liabilities:`float$();
+    equity:`float$();
+    operating_cash_flow:`float$();
+    investing_cash_flow:`float$();
+    financing_cash_flow:`float$();
+    roe:`float$();
+    equity_ratio:`float$()
+  );

@@ -7,11 +7,8 @@ raw_dir = "../data/raw"
 
 [api]
 env_var_name = "EDINET_API_KEY"
-doc_list_url = "https://api.edinet-fsa.go.jp/api/v2/documents.json"
-doc_get_url = "https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
 
 [edinet]
-doc_type_annual = "120"
 sleep_seconds = 0.1
 
 [run]
@@ -20,5 +17,10 @@ default_start_month = 1
 default_end_year = 2026
 default_end_month = 5
 
-[files]
-annual_output_prefix = "annual_statement"
+[report_types.annual]
+doc_type_codes = ["120"]
+output_prefix = "annual_financials"
+
+[report_types.semi_annual]
+doc_type_codes = ["160", "170"]
+output_prefix = "semi_annual_financials"
