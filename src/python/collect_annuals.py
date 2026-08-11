@@ -21,7 +21,6 @@ from config.loadConfig import load_config
 def parse_date(date_str: str) -> date:
     return datetime.strptime(date_str, "%Y-%m-%d").date()
 
-
 def collect_annual_statements_by_date(date_str: str, sleep_seconds: float, doc_type_annual: str) -> pd.DataFrame:
     rows = []
 
